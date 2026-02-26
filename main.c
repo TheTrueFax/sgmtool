@@ -3,9 +3,9 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <math.h>
+#include <math.h> // For ceil()
 
-#define VERSION "0.1.0"
+#define VERSION "0.1.2"
 #define SGM_VERSION 3
 #define SGM_MAGIC_NUMBER 352658064
 
@@ -14,14 +14,19 @@
 #define uint32 uint32_t
 #define float32 float
 
+// TODO: fix the indices being absolute bum, random faces linking to random verts for no reason
+// (around line 900)
 
 // -w [file] input obj
 // -o [file] output sgm
 // -h or --help is help menu
 // -v or --version is version
+// -d or --debug is debug (print extra info)
+
+int g_debug = 0;
 
 int print_help() {
-    printf("Sgmtool is a CLI tool to convert OBJ files (or different file types) into Uberpixel SGM files, used in the Rayne game engine.\n\nSgmtool help menu:\n\n-h or --help       Show this menu\n-v or --version    Print version number\n\nUsage:\n-o [file name]     File to output to, creates a new file if none exists\n-w [file name]     Use a Wavefront .obj file for the conversion\n");
+    printf("Sgmtool is a CLI tool to convert OBJ files (or different file types) into Uberpixel SGM files, used in the Rayne game engine.\n\nSgmtool help menu:\n\n-h or --help       Show this menu\n-v or --version    Print version number\n-d or --debug      Enable debug info (more entertaining really)\n\nUsage:\n-o [file name]     File to output to, creates a new file if none exists\n-w [file name]     Use a Wavefront .obj file for the conversion\n");
     return 0;
 }
 int print_version() {
@@ -33,23 +38,7 @@ void err(const char* text) {
     printf("\x1b[1;31mError: %s\x1b[m\n",text);
 }
 
-/*int ceil(float value) {
-	int casted = (int)value;
-	if (value - (float)casted > 0) {
-		return casted+1;
-	} else {
-		return casted;
-	}
-}*/
-
-void dpf(const char* text, void* content) {
-    printf(text,content);
-}
-/*void p(const char* text) {
-    printf("Log: %s\n",text);
-}*/
-
-// define sgmable
+// Define vector data types (rarely used in favor of sgmable)
 
 struct vec4 {
     float x;
@@ -66,6 +55,7 @@ struct vec2 {
     float y;
 };
 
+// Define SGM file as a struct, define the dependencies first
 
 struct sgmtexture {
     uint8 texture_type_hint;
@@ -155,6 +145,8 @@ struct sgmmesh {
     uint32 *indices_4;
 };
 
+// Root file object, start here for discovery
+
 struct sgmfile {
     uint32 magic_number;
     uint8 version;
@@ -169,22 +161,12 @@ struct sgmfile {
     uint16 animfilename_length;
     char* animfilename[];
 };
-
-/*struct padded_buffer;
-
-struct padded_buffer {
-    uint16 progress;
-    uint8 buffer[500];
-    struct padded_buffer* next;
-};
-
-void write_padded(void *dest, const void *src, size_t n) {
-
-}*/
     
 int serialize_sgmfile(const char* filename, struct sgmfile sgm, int exptextures, int exptangents, int expanimations, int hasbones) {
+    // Write sgmfile struct into a file, then free sgmfile memory
 
-    printf("Starting serialization\n");
+    if (g_debug)
+        printf("Starting serialization\n");
 
     FILE* fileptr;
 
@@ -194,7 +176,8 @@ int serialize_sgmfile(const char* filename, struct sgmfile sgm, int exptextures,
         return 1;
     }
 
-    printf("|-- Writing headers\n");
+    if (g_debug)
+        printf("|-- Writing headers\n");
 
 
     // im so sorry i have to hardcode everything
@@ -204,14 +187,17 @@ int serialize_sgmfile(const char* filename, struct sgmfile sgm, int exptextures,
 
     fwrite((void*)&sgm.number_of_materials, 1, 1, fileptr);
 
-    printf("|-- Writing %i material(s)\n",sgm.number_of_materials);
+    if (g_debug)
+        printf("|-- Writing %i material(s)\n",sgm.number_of_materials);
     
     for (int i=0;i<sgm.number_of_materials;i++) { // for every material
-        printf("| Writing material headers\n");
+        if (g_debug)
+            printf("| Writing material headers\n");
         fwrite((void*)&sgm.materials[i].material_id, 1, 1, fileptr);
         fwrite((void*)&sgm.materials[i].number_of_uv_sets, 1, 1, fileptr);
         if (sgm.materials[i].number_of_uv_sets>0) {
-            printf("| |-- Writing uv set(s)\n");
+            if (g_debug)
+                printf("| |-- Writing uv set(s)\n");
         }
         for (int x=0;x<sgm.materials[i].number_of_uv_sets;x++) { // for every uv set
             fwrite((void*)&sgm.materials[i].uvs[x].number_of_textures, 1, 1, fileptr);
@@ -228,25 +214,29 @@ int serialize_sgmfile(const char* filename, struct sgmfile sgm, int exptextures,
         /*if (sgm.materials[i].number_of_uv_sets!=0){
             free(sgm.materials[i].uvs);
         }*/
-        printf("| |-- Writing material color data\n");
+        if (g_debug)
+            printf("| |-- Writing material color data\n");
         fwrite((void*)&sgm.materials[i].number_of_colors, 1, 1, fileptr);
         for (int x=0;x<sgm.materials[i].number_of_colors;x++) { // for every color
             fwrite((void*)&sgm.materials[i].colors[x].color_type_hint, 1, 1, fileptr);
             fwrite((void*)&sgm.materials[i].colors[x].r, 1, 4, fileptr);
             fwrite((void*)&sgm.materials[i].colors[x].g, 1, 4, fileptr);
             fwrite((void*)&sgm.materials[i].colors[x].b, 1, 4, fileptr);
+            fwrite((void*)&sgm.materials[i].colors[x].a, 1, 4, fileptr);
         }
         if (sgm.materials[i].number_of_colors>0) {
             free(sgm.materials[i].colors);
         }
     }
 
-    printf("|-- Writing %i mesh(es)\n",sgm.number_of_meshes);
+    if (g_debug)
+        printf("|-- Writing %i mesh(es)\n",sgm.number_of_meshes);
 
     fwrite((void*)&sgm.number_of_meshes, 1, 1, fileptr);
     for (int i=0;i<sgm.number_of_meshes;i++) { // for every mesh
 
-        printf("| Writing mesh headers\n");
+        if (g_debug)
+            printf("| Writing mesh headers\n");
         fwrite((void*)&sgm.meshes[i].mesh_id, 1, 1, fileptr);
         fwrite((void*)&sgm.meshes[i].used_materials_id, 1, 1, fileptr);
         fwrite((void*)&sgm.meshes[i].number_of_vertices, 1, 4, fileptr);
@@ -255,13 +245,14 @@ int serialize_sgmfile(const char* filename, struct sgmfile sgm, int exptextures,
         fwrite((void*)&sgm.meshes[i].has_tangents, 1, 1, fileptr);
         fwrite((void*)&sgm.meshes[i].has_bones, 1, 1, fileptr);
 
-        printf("| |-- Writing interleaved verticies\n");
+        if (g_debug)
+            printf("| |-- Writing interleaved verticies\n");
 
         for (int x=0;x<sgm.meshes[i].number_of_vertices;x++) { // for every vertex
             fwrite((void*)&sgm.meshes[i].vertex_data[x].position_x, 1, 4, fileptr);
             fwrite((void*)&sgm.meshes[i].vertex_data[x].position_y, 1, 4, fileptr);
             fwrite((void*)&sgm.meshes[i].vertex_data[x].position_z, 1, 4, fileptr);
-            printf("Vertex num %i, x: %f, y: %f, z: %f\n",x,sgm.meshes[i].vertex_data[x].position_x,sgm.meshes[i].vertex_data[x].position_y,sgm.meshes[i].vertex_data[x].position_z);
+            //printf("Vertex num %i, x: %f, y: %f, z: %f\n",x,sgm.meshes[i].vertex_data[x].position_x,sgm.meshes[i].vertex_data[x].position_y,sgm.meshes[i].vertex_data[x].position_z);
             
             fwrite((void*)&sgm.meshes[i].vertex_data[x].normal_x, 1, 4, fileptr);
             fwrite((void*)&sgm.meshes[i].vertex_data[x].normal_y, 1, 4, fileptr);
@@ -299,7 +290,8 @@ int serialize_sgmfile(const char* filename, struct sgmfile sgm, int exptextures,
             }
         }
 
-        printf("| |-- Writing %i indice(s)\n",sgm.meshes[i].number_of_indices);
+        if (g_debug)
+            printf("| |-- Writing %i indice(s)\n",sgm.meshes[i].number_of_indices);
 
         fwrite((void*)&sgm.meshes[i].number_of_indices, 1, 4, fileptr);
         fwrite((void*)&sgm.meshes[i].index_size, 1, 1, fileptr);
@@ -318,7 +310,8 @@ int serialize_sgmfile(const char* filename, struct sgmfile sgm, int exptextures,
                 free(sgm.meshes[i].indices_4);
             }
         }
-        printf("| |-- Finished writing mesh\n");
+        if (g_debug)
+            printf("| |-- Finished writing mesh\n");
     }
     for (int i=0;i<sgm.number_of_meshes;i++) {
         if (sgm.materials[sgm.meshes[i].used_materials_id].uvs!=NULL) {
@@ -333,7 +326,8 @@ int serialize_sgmfile(const char* filename, struct sgmfile sgm, int exptextures,
         free(sgm.meshes);
     }
 
-    printf("|-- Writing animation data\n");
+    if (g_debug)
+        printf("|-- Writing animation data\n");
 
     // animations
     fwrite((void*)&sgm.has_animation, 1, 1, fileptr);
@@ -344,7 +338,8 @@ int serialize_sgmfile(const char* filename, struct sgmfile sgm, int exptextures,
 
     fclose(fileptr);
 
-    printf("Done!\n");
+    if (g_debug)
+        printf("Done!\n");
 
     return 0;
 }
@@ -368,16 +363,17 @@ int str_index(const char* array[], int array_length, const char* string) {
     return 0;
 }
 
-int atoi_cool(const char string) {
-    if (strlen(&string)<2) {
-        return string-'0';
+int atoi_cool(const char* string) {
+    if (strlen(string)<2) {
+        return string[0]-'0';
     } else {
-        return atoi(&string);
+        return atoi(string);
     }
 }
 
 void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
-    printf("Opening wavefront file\n");
+    if (g_debug)
+        printf("Opening wavefront file\n");
     
     // write const headers
     sgm->magic_number = SGM_MAGIC_NUMBER;
@@ -465,7 +461,8 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
     struct linqvert verts;
     struct linqvert* lastvert = &verts;
 
-    printf("Parsing file data\n");
+    if (g_debug)
+        printf("Parsing file data\n");
 
     while (fgets(line, sizeof(line), fileptr)) {
         // split line by spaces and remove \n
@@ -583,7 +580,7 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
                 //printf("%i\n",tcount);
 
                 if (tcount==1) { // more common than youd think
-                    lastface->data[i-1].vert_id = atoi_cool(*splittedlist[i]);
+                    lastface->data[i-1].vert_id = atoi_cool(splittedlist[i]);
                 } else {
                     char** splitted;
                     //printf("%s\n",splittedlist[i]);
@@ -598,13 +595,13 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
 
                     //printf("tcount: %i, thing: %s",tcount,splittedlist[i]);
 
-                    lastface->data[i-1].vert_id = atoi_cool(*splitted[0]);
+                    lastface->data[i-1].vert_id = atoi_cool(splitted[0]);
                     if (strlen(splitted[1])>0) {
-                        lastface->data[i-1].uv_id = atoi_cool(*splitted[1]);
+                        lastface->data[i-1].uv_id = atoi_cool(splitted[1]);
                         has_uvs=1;
                     }
                     if (tcount==2) {
-                        lastface->data[i-1].norm_id = atoi_cool(*splitted[2]);
+                        lastface->data[i-1].norm_id = atoi_cool(splitted[2]);
                         has_norms=1;
                     }
                     free(splitted);
@@ -637,7 +634,8 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
         printf("\x1b[1;33mWarning: OBJ models with n-gons are not supported yet, the faces will be ommited in the conversion process\x1b[m\n");
     }
 
-    printf("Optimising data structures\n");
+    if (g_debug)
+        printf("Optimising data structures\n");
     
     // store them in a non-linq list for fast acess
     struct vec3* allverts = malloc(sizeof(struct vec3)*vert_count);
@@ -701,8 +699,8 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
         }
     }
 
-
-    printf("Translating to an SGMable structure (materials not supported yet)\n");
+    if (g_debug)
+        printf("Translating to an SGMable structure (materials not supported yet)\n");
 
     // allocate and write some values
 
@@ -718,6 +716,7 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
         sgm->materials->number_of_uv_sets = 0;
     }
 
+    sgm->materials->material_id=0;
     sgm->materials->number_of_colors = 1;
     sgm->materials->colors=malloc(sizeof(struct sgmcolor));
     sgm->materials->colors->color_type_hint = 4;
@@ -798,12 +797,17 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
 
     sgm->meshes->mesh_id=0;
     sgm->meshes->used_materials_id=0;
-    sgm->meshes->color_channel_count = 4;
+    sgm->meshes->color_channel_count = 0;
     sgm->meshes->has_tangents=0;
     sgm->meshes->has_bones=0;
     sgm->meshes->number_of_vertices=vert_count;
 
-    sgm->meshes->texcoord_count=0;// ?
+    if (has_uvs) {
+        sgm->meshes->texcoord_count=1;
+    } else {
+        sgm->meshes->texcoord_count=0;
+    }
+
 
     int index_count=0;
 
@@ -839,7 +843,8 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
 
     // idea: each face in an obj has indexes for uv norm and pos but in an sgm each vert has all of that data in it already, so create some lists that link that obj indices to the sgm vert number for later re-using ;)
 
-    printf("Writing faces and verts\n");
+    if (g_debug)
+        printf("Writing faces and verts\n");
 
     used_verts_count=0;
     used_norm_verts_count=0;
@@ -864,8 +869,8 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
             int uv_match=0;
 
             int pos_matched=0;
-            int norm_matched=0;
-            int uv_matched=0;
+            int norm_matched=1;
+            int uv_matched=1;
 
             for (int v=0;v<used_verts_count;v++) {
                 if (used_verts[v].original==fda->vert_id) {
@@ -875,6 +880,7 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
                 }
             }
             if (has_norms!=0){
+                norm_matched=0;
                 for (int v=0;v<used_norm_verts_count;v++) {
                     if (used_norm_verts[v].original==fda->norm_id) {
                         norm_match=v;
@@ -884,6 +890,7 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
                 }
             }
             if (has_uvs!=0){
+                uv_matched=0;
                 for (int v=0;v<used_uv_verts_count;v++) {
                     if (used_uv_verts[v].original==fda->uv_id) {
                         uv_match=v;
@@ -892,6 +899,7 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
                     }
                 }
             }
+
 
             if (uv_matched!=0&&norm_matched!=0&&pos_matched!=0) {
                 if (sgm->meshes->index_size==2) {
@@ -906,11 +914,19 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
                 vert->position_x = allverts[fda->vert_id-1].x;
                 vert->position_y = allverts[fda->vert_id-1].y;
                 vert->position_z = allverts[fda->vert_id-1].z;
+                
+                used_verts[used_verts_count].original=fda->vert_id;
+                used_verts_count++;
+                
+                //printf("%f\n",allverts[fda->vert_id-1].x);
 
                 if (has_norms){
                     vert->normal_x = allnorms[fda->norm_id-1].x;
                     vert->normal_y = allnorms[fda->norm_id-1].y;
                     vert->normal_z = allnorms[fda->norm_id-1].z;
+
+                    used_norm_verts[used_norm_verts_count].original=fda->norm_id;
+                    used_norm_verts_count++;
                 }
 
                 if (has_uvs){
@@ -918,6 +934,9 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
 
                     vert->uvs->u = alluvs[fda->uv_id-1].x;
                     vert->uvs->v = alluvs[fda->uv_id-1].y;
+
+                    used_uv_verts[used_uv_verts_count].original=fda->uv_id;
+                    used_uv_verts_count++;
                 }
                 
                 vert->has_color=0;
@@ -932,51 +951,16 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
         current=current->next;
     }
 
+    if (g_debug)
+        printf("Written index count: %i\n",written_index_count);
+
     free(used_verts);
     free(used_norm_verts);
     free(used_uv_verts);
 
-    
-    
-    /*
-    float position_x;
-    float position_y;
-    float position_z;
-
-    float normal_x;
-    float normal_y;
-    float normal_z;
-    
-    struct sgmuvpos *uvs; // One item for each layer
-
-    int has_color;
-    int has_tangents;
-    int has_bones;
-
-    float color_r;
-    float color_g;
-    float color_b;
-    float color_a;
-    
-    float tangents_x;
-    float tangents_y;
-    float tangents_z;
-    float tangents_w;
-    
-    float weights_x;
-    float weights_y;
-    float weights_z;
-    float weights_w;
-    
-    float bones_x;
-    float bones_y;
-    float bones_z;
-    float bones_w;
-    */
-    
-
     // free memory
-    printf("Freeing storage\n");
+    if (g_debug)
+        printf("Freeing storage\n");
 
     free(allverts);
     free(allnorms);
@@ -1015,7 +999,8 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
         free(matnames[i]);
     }
 
-    printf("Obj file summary:\nVert count:     %i\nFace count:     %i\nMaterial count: %i\n",vert_count,face_count,mat_count);
+    if (g_debug)
+        printf("Obj file summary:\nVert count:     %i\nFace count:     %i\nMaterial count: %i\n",vert_count,face_count,mat_count);
 
     fclose(fileptr);
 }
@@ -1046,6 +1031,9 @@ int main(int argc, char* argv[]) {
         if (strcmp(argv[i],"-h")==0 || strcmp(argv[i],"--help")==0) {
             return print_help();
         }
+        if (strcmp(argv[i],"-d")==0 || strcmp(argv[i],"--debug")==0) {
+            g_debug=1;
+        }
         if (strcmp(argv[i],"-w")==0) {
             if (i+2>argc) {
                 err("-w [Input filename]");
@@ -1073,7 +1061,8 @@ int main(int argc, char* argv[]) {
     }
     if (input_file_valid==1&&output_file_valid==1) {
 
-        printf("Creating sgm object\n");
+        if (g_debug)
+            printf("Creating sgm object\n");
         
         // cool thang
         struct sgmfile sgm;
