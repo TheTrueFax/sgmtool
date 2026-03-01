@@ -16,12 +16,30 @@
 
 // TODO: fix the indices being absolute bum, random faces linking to random verts for no reason
 // (around line 900)
+// Also fix memory freeing on line 958
 
 // -w [file] input obj
 // -o [file] output sgm
 // -h or --help is help menu
 // -v or --version is version
 // -d or --debug is debug (print extra info)
+
+typedef struct ptrlib;
+typedef struct {
+    void* data[20];
+    int index;
+    ptrlib* next;
+} ptrlib;
+
+void amalloc(size_t size) {
+
+}
+
+void afreeall() {
+
+}
+
+
 
 int g_debug = 0;
 
@@ -407,10 +425,13 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
         int norm_id;
     };
 
+    int fsmooth = 0;
+
     struct linqface;
     struct linqface {
         int material;
         int vert_count;
+        int is_smooth;
         struct facedata* data;
         struct linqface* next;
         struct linqface* last;
@@ -494,6 +515,16 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
             printf("%s\n",splittedlist[i]);
         }*/
 
+        if (strcmp(splittedlist[0],"s")==0) {
+            if (strcmp(splittedlist[1],"on")==0) {
+                fsmooth=1;
+            } else if (strcmp(splittedlist[1],"off")==0) {
+                fsmooth=0;
+            } else {
+                printf("\x1b[1;33mWarning: Invalid ss option in OBJ file\x1b[m");
+            }
+        }
+
         if (strcmp(splittedlist[0],"v")==0) {
 
             if (vert_count%10==0) {
@@ -570,6 +601,8 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
             lastface->vert_count = amount_of_phrases - 1;
 
             lastface->material = current_mat;
+
+            lastface->is_smooth = fsmooth;
 
             if (lastface->vert_count!=3) {
                 has_ngons=1;
@@ -785,12 +818,13 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
                 }
             }
 
-            if (pos_matched==0||((vert_norm_count<1)?norm_matched==0:0)||((vert_uv_count<1)?uv_matched==0:0)) {
+            if (pos_matched==0||((vert_norm_count<1)?norm_matched==0:0)||((vert_uv_count<1)?uv_matched==0:0)||current->is_smooth==0) {
                 real_vert_count++;
             }
         }
         current=current->next;
     }
+    real_vert_count++;
 
     sgm->meshes->vertex_data = calloc(1,sizeof(struct sgmvertex)*real_vert_count);
 
@@ -900,8 +934,7 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
                 }
             }
 
-
-            if (uv_matched!=0&&norm_matched!=0&&pos_matched!=0) {
+            if (uv_matched!=0&&norm_matched!=0&&pos_matched!=0&&current->is_smooth) {
                 if (sgm->meshes->index_size==2) {
                     sgm->meshes->indices_2[written_index_count]=pos_match;
                 } else {
@@ -938,6 +971,13 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
                     used_uv_verts[used_uv_verts_count].original=fda->uv_id;
                     used_uv_verts_count++;
                 }
+
+                if (sgm->meshes->index_size==2) {
+                    sgm->meshes->indices_2[written_index_count]=written_vertex_count;
+                } else {
+                    sgm->meshes->indices_4[written_index_count]=written_vertex_count;
+                }
+                written_index_count++;
                 
                 vert->has_color=0;
                 vert->has_tangents=0;
@@ -954,9 +994,9 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
     if (g_debug)
         printf("Written index count: %i\n",written_index_count);
 
-    free(used_verts);
+    //free(used_verts);
     free(used_norm_verts);
-    free(used_uv_verts);
+    //free(used_uv_verts);
 
     // free memory
     if (g_debug)
