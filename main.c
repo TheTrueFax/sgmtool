@@ -24,22 +24,54 @@
 // -v or --version is version
 // -d or --debug is debug (print extra info)
 
-typedef struct ptrlib;
-typedef struct {
+struct ptrlib;
+struct ptrlib {
     void* data[20];
     int index;
-    ptrlib* next;
-} ptrlib;
+    struct ptrlib* next;
+};
 
-void amalloc(size_t size) {
+struct ptrlib first;
+struct ptrlib* last = &first;
 
+void* amalloc(size_t size) {
+    if (last->index>19) {
+        last->next=malloc(sizeof(struct ptrlib));
+        last=last->next;
+        last->next=NULL;
+    }
+    void* ptr = malloc(size);
+    last->data[last->index]=ptr;
+    last->index++;
+    return ptr;
 }
 
 void afreeall() {
-
+    struct ptrlib* curr = &first;
+    struct ptrlib* tofree;
+    while (1) {
+        for (int i=0;i<20;i++) {
+            if (curr->data[i]==NULL) {
+                continue;
+            }
+            free(curr->data[i]);
+        }
+        if (curr->next==NULL) {
+            break;
+        }
+        tofree=curr;
+        curr=curr->next;
+        free(tofree);
+    }
 }
 
+void safe_free(void* mem) {
+    free(mem);
+    mem=NULL;
+}
 
+#define malloc amalloc
+#define free safe_free
 
 int g_debug = 0;
 
@@ -994,9 +1026,9 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
     if (g_debug)
         printf("Written index count: %i\n",written_index_count);
 
-    //free(used_verts);
+    free(used_verts);
     free(used_norm_verts);
-    //free(used_uv_verts);
+    free(used_uv_verts);
 
     // free memory
     if (g_debug)
@@ -1005,7 +1037,6 @@ void sgm_fromwavefront(const char* filename, struct sgmfile* sgm) {
     free(allverts);
     free(allnorms);
     free(alluvs);
-
     struct linqvert* selected = lastvert->last;
     for (int i=0;i<ceil(vert_count/10);i++) {
         free(selected->next);
@@ -1114,7 +1145,7 @@ int main(int argc, char* argv[]) {
         return serialize_sgmfile(output_file, sgm, 0, 0, 0, 0);
 
     }
-    
+    afreeall();
 
     return 0;
 }
